@@ -1,0 +1,30 @@
+{
+  "server": {
+    "baseUrl": "http://localhost:3000/api",
+    "timeout": 10000,
+    "retryAttempts": 3,
+    "retryDelay": 1000
+  },
+  "license": {
+    "leaseTokenRefreshInterval": 3600000,
+    "updateCheckInterval": 86400000,
+    "gracePeriod": 7200000
+  },
+  "update": {
+    "enabled": true,
+    "checkInterval": 86400000,
+    "channel": "stable"
+  },
+  "device": {
+    "hashAlgorithm": "sha256",
+    "identifierFields": [
+      "machineId",
+      "serialNumber",
+      "macAddress"
+    ]
+  },
+  "logging": {
+    "level": "info",
+    "logApiCalls": true
+  }
+}

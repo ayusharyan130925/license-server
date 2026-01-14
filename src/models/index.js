@@ -26,6 +26,7 @@ const DeviceUser = require('./DeviceUser')(sequelize, Sequelize.DataTypes);
 const WebhookEvent = require('./WebhookEvent')(sequelize, Sequelize.DataTypes);
 const DeviceCreationLimit = require('./DeviceCreationLimit')(sequelize, Sequelize.DataTypes);
 const RiskEvent = require('./RiskEvent')(sequelize, Sequelize.DataTypes);
+const AppVersion = require('./AppVersion')(sequelize, Sequelize.DataTypes);
 
 // Define associations
 // User has many Subscriptions
@@ -64,7 +65,8 @@ const db = {
   DeviceUser,
   WebhookEvent,
   DeviceCreationLimit,
-  RiskEvent
+  RiskEvent,
+  AppVersion
 };
 
 module.exports = db;
