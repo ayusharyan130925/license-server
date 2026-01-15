@@ -10,9 +10,11 @@ import {
 } from '@mui/material'
 import LockIcon from '@mui/icons-material/Lock'
 import { loginAdmin } from '../api/admin'
+import { useToast } from '../components/ToastContext'
 
 function Login() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [email, setEmail] = useState('visionai-desktop@gmail.com')
   const [password, setPassword] = useState('Demo@123')
   const [loading, setLoading] = useState(false)
@@ -27,10 +29,13 @@ function Login() {
       // Save token for subsequent requests
       window.localStorage.setItem('adminToken', result.token)
       window.localStorage.setItem('adminEmail', result.email)
+      showToast('Login successful!', 'success')
       navigate('/dashboard', { replace: true })
     } catch (err) {
       console.error('Admin login failed:', err)
-      setError(err.message || 'Invalid email or password')
+      const errorMsg = err.message || 'Invalid email or password'
+      setError(errorMsg)
+      showToast(errorMsg, 'error')
     } finally {
       setLoading(false)
     }

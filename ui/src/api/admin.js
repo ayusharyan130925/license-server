@@ -70,3 +70,8 @@ export const getAbuseConfig = () => {
 export const runCleanup = (options = {}) => {
   return apiClient.post('/admin/abuse/cleanup', options)
 }
+
+// Leads Management
+export const getLeads = (filters = {}) => {
+  return apiClient.get('/admin/leads', { params: filters })
+}

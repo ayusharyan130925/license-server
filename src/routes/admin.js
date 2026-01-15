@@ -12,7 +12,7 @@ const { requireAdmin } = require('../middleware/adminAuth');
 const UpdateService = require('../services/updateService');
 const AbuseMetricsService = require('../services/abuseMetricsService');
 const CleanupService = require('../services/cleanupService');
-const { User, Device, Subscription, DeviceUser } = require('../models');
+const { User, Device, Subscription, DeviceUser, Plan } = require('../models');
 const { Op } = require('sequelize');
 
 const router = express.Router();
@@ -689,6 +689,258 @@ router.get('/abuse/config', async (req, res) => {
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to get abuse configuration'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/leads
+ * 
+ * Get user leads with conversion tracking and subscription status
+ * 
+ * Query Parameters:
+ * - status: Filter by status (trial_ending, trial_expired, active, expired, converted, churned)
+ * - sortBy: Sort field (email, created_at, trial_ends_at, subscription_status)
+ * - sortOrder: asc or desc
+ * - search: Search by email
+ * - daysUntilExpiry: Filter by days until trial/license expires (e.g., 3 for 3 days or less)
+ */
+router.get('/leads', async (req, res) => {
+  try {
+    const { status, sortBy = 'created_at', sortOrder = 'desc', search, daysUntilExpiry } = req.query;
+
+    // Get all users with their subscriptions
+    // Note: Plan include is optional in case plans table or plan_id column doesn't exist
+    let users;
+    try {
+      // First try with plan include (if plan_id column exists)
+      users = await User.findAll({
+        include: [
+          {
+            model: Subscription,
+            as: 'subscriptions',
+            include: [{
+              model: Plan,
+              as: 'plan',
+              required: false
+            }],
+            required: false
+          }
+        ],
+        order: [[sortBy, sortOrder.toUpperCase()]]
+      });
+    } catch (planError) {
+      // If plans table or plan_id column doesn't exist, fetch without plan include
+      // Explicitly list attributes to avoid plan_id column reference
+      const errorMsg = planError.message || '';
+      const parentErrorMsg = planError.parent?.message || '';
+      const fullErrorMsg = `${errorMsg} ${parentErrorMsg}`;
+      
+      if (fullErrorMsg.includes('plans') || fullErrorMsg.includes('plan_id') || fullErrorMsg.includes('Unknown column')) {
+        console.log('Plans table or plan_id column not found, fetching subscriptions without plan include');
+        users = await User.findAll({
+          include: [
+            {
+              model: Subscription,
+              as: 'subscriptions',
+              required: false,
+              attributes: ['id', 'user_id', 'stripe_customer_id', 'stripe_subscription_id', 'status', 'created_at', 'updated_at']
+            }
+          ],
+          order: [[sortBy, sortOrder.toUpperCase()]]
+        });
+      } else {
+        throw planError;
+      }
+    }
+
+    // Get devices for all users
+    const userIds = users.map(u => u.id);
+    const deviceUsers = await DeviceUser.findAll({
+      where: { user_id: { [Op.in]: userIds } },
+      include: [{ model: Device, as: 'device' }]
+    });
+
+    // Group devices by user
+    const devicesByUser = {};
+    deviceUsers.forEach(du => {
+      if (!devicesByUser[du.user_id]) {
+        devicesByUser[du.user_id] = [];
+      }
+      if (du.device) {
+        devicesByUser[du.user_id].push(du.device);
+      }
+    });
+
+    const now = new Date();
+    const leads = users.map(user => {
+      // Get subscriptions
+      const activeSubscription = user.subscriptions?.find(sub => sub.status === 'active');
+      const trialSubscription = user.subscriptions?.find(sub => sub.status === 'trial');
+      const expiredSubscription = user.subscriptions?.find(sub => sub.status === 'expired');
+
+      // Get user's devices with trial info
+      const userDevices = devicesByUser[user.id] || [];
+      
+      // Find devices with trial info (has trial_started_at and trial_ended_at)
+      const devicesWithTrial = userDevices.filter(device => 
+        device.trial_started_at && device.trial_ended_at
+      );
+      
+      // Find active trial device (trial hasn't ended yet)
+      const activeTrialDevice = devicesWithTrial.find(device => {
+        const trialEnd = new Date(device.trial_ended_at);
+        return trialEnd >= now;
+      });
+      
+      // Find expired trial device (trial has ended by date)
+      const expiredTrialDevice = devicesWithTrial.find(device => {
+        const trialEnd = new Date(device.trial_ended_at);
+        return trialEnd < now;
+      });
+      
+      // Check if any device has consumed trial (trial_consumed = true)
+      // This is the definitive flag that a trial was used
+      const hasConsumedTrial = userDevices.some(device => device.trial_consumed === true);
+      
+      // Find the most recent expired trial device for date calculations
+      const mostRecentExpiredTrial = devicesWithTrial
+        .filter(device => {
+          const trialEnd = new Date(device.trial_ended_at);
+          return trialEnd < now;
+        })
+        .sort((a, b) => new Date(b.trial_ended_at) - new Date(a.trial_ended_at))[0];
+      
+      // Check if user has an expired trial
+      // Either: trial_ended_at < now, OR trial_consumed = true (and no active trial/subscription)
+      const hasExpiredTrial = expiredTrialDevice !== undefined || 
+                              mostRecentExpiredTrial !== undefined ||
+                              (hasConsumedTrial && !activeTrialDevice && !activeSubscription);
+
+      // Calculate days until expiry
+      let daysUntilExpiryCalc = null;
+      let expiryDate = null;
+      if (activeTrialDevice && activeTrialDevice.trial_ended_at) {
+        expiryDate = new Date(activeTrialDevice.trial_ended_at);
+        daysUntilExpiryCalc = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+      }
+
+      // Determine lead status
+      let leadStatus = 'unknown';
+      
+      // Priority 1: Active subscription (paid)
+      if (activeSubscription) {
+        // Check if converted from trial (had trial before getting active subscription)
+        if (expiredTrialDevice || hasConsumedTrial || trialSubscription) {
+          leadStatus = 'converted';
+        } else {
+          leadStatus = 'active';
+        }
+      }
+      // Priority 2: Currently in trial
+      else if (activeTrialDevice) {
+        if (daysUntilExpiryCalc !== null && daysUntilExpiryCalc <= 3 && daysUntilExpiryCalc >= 0) {
+          leadStatus = 'trial_ending';
+        } else {
+          leadStatus = 'trial_active';
+        }
+      }
+      // Priority 3: Trial expired but no active subscription
+      else if (hasExpiredTrial) {
+        // Check if they had a paid subscription that expired (churned)
+        if (expiredSubscription) {
+          leadStatus = 'churned';
+        } else {
+          // Trial expired and never converted to paid
+          leadStatus = 'trial_expired';
+        }
+      }
+      // Priority 4: Only expired subscription (no trial history)
+      else if (expiredSubscription) {
+        leadStatus = 'expired';
+      }
+      // Priority 5: No subscription or trial at all
+      else if (userDevices.length === 0) {
+        leadStatus = 'no_activity';
+      }
+
+      return {
+        id: user.id,
+        email: user.email,
+        created_at: user.created_at,
+        max_devices: user.max_devices,
+        subscription_status: activeSubscription ? 'active' : (trialSubscription ? 'trial' : (expiredSubscription ? 'expired' : 'none')),
+        plan: (activeSubscription?.plan?.name || trialSubscription?.plan?.name || 'none'),
+        trial_started_at: activeTrialDevice?.trial_started_at || mostRecentExpiredTrial?.trial_started_at || expiredTrialDevice?.trial_started_at,
+        trial_ended_at: activeTrialDevice?.trial_ended_at || mostRecentExpiredTrial?.trial_ended_at || expiredTrialDevice?.trial_ended_at,
+        days_until_expiry: daysUntilExpiryCalc,
+        expiry_date: expiryDate,
+        lead_status: leadStatus,
+        converted_from_trial: !!(activeSubscription && (trialSubscription || expiredTrialDevice)),
+        has_active_subscription: !!activeSubscription,
+        device_count: userDevices.length,
+        last_seen_at: userDevices.length > 0 ? 
+          new Date(Math.max(...userDevices.map(d => d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0))) : null
+      };
+    });
+
+    // Apply filters
+    let filteredLeads = leads;
+    
+    if (status) {
+      filteredLeads = filteredLeads.filter(lead => lead.lead_status === status);
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.email.toLowerCase().includes(searchLower)
+      );
+    }
+
+    if (daysUntilExpiry !== undefined) {
+      const days = parseInt(daysUntilExpiry, 10);
+      filteredLeads = filteredLeads.filter(lead => 
+        lead.days_until_expiry !== null && lead.days_until_expiry <= days
+      );
+    }
+
+    // Calculate summary stats
+    const stats = {
+      total: leads.length,
+      trial_active: leads.filter(l => l.lead_status === 'trial_active').length,
+      trial_ending: leads.filter(l => l.lead_status === 'trial_ending').length,
+      trial_expired: leads.filter(l => l.lead_status === 'trial_expired').length,
+      converted: leads.filter(l => l.lead_status === 'converted').length,
+      active: leads.filter(l => l.lead_status === 'active').length,
+      churned: leads.filter(l => l.lead_status === 'churned').length,
+      expired: leads.filter(l => l.lead_status === 'expired').length,
+      no_activity: leads.filter(l => l.lead_status === 'no_activity').length
+    };
+
+    // Debug logging (only in development)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Leads query: Found ${leads.length} total leads`);
+      console.log(`Status breakdown:`, {
+        trial_expired: leads.filter(l => l.lead_status === 'trial_expired').length,
+        trial_active: leads.filter(l => l.lead_status === 'trial_active').length,
+        converted: leads.filter(l => l.lead_status === 'converted').length,
+        churned: leads.filter(l => l.lead_status === 'churned').length,
+      });
+    }
+
+    return res.status(200).json({
+      leads: filteredLeads,
+      stats,
+      total: filteredLeads.length
+    });
+  } catch (error) {
+    console.error('Get leads error:', error);
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get leads',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
