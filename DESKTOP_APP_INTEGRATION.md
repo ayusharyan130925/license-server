@@ -22,7 +22,9 @@ Create a configuration file in your desktop app (e.g., `config.json` or `config.
     "retryDelay": 1000
   },
   "license": {
+    "trialDays": 14,
     "leaseTokenRefreshInterval": 3600000,
+    "licenseCheckInterval": 3600000,
     "updateCheckInterval": 86400000,
     "gracePeriod": 7200000
   },
@@ -45,6 +47,60 @@ Create a configuration file in your desktop app (e.g., `config.json` or `config.
   }
 }
 ```
+
+---
+
+## Configuration Options Explained
+
+### License Configuration
+
+- **`trialDays`** (number, default: 14)
+  - Number of days for the trial period
+  - Used for client-side display and validation
+  - **Note:** Server enforces the actual trial duration (currently 14 days)
+  - Example: `14` = 14-day trial period
+
+- **`leaseTokenRefreshInterval`** (number, milliseconds, default: 3600000 = 1 hour)
+  - How often to refresh the JWT lease token
+  - Lease tokens expire after 12-24 hours, so refresh before expiry
+  - Recommended: 1 hour (3600000 ms)
+  - Example: `3600000` = refresh every hour
+
+- **`licenseCheckInterval`** (number, milliseconds, default: 3600000 = 1 hour)
+  - How often to check license status (trial vs payment/active)
+  - This determines how frequently the app verifies if the user is still on trial or has an active subscription
+  - Used to detect transitions from trial to paid, or trial expiration
+  - Recommended: 1 hour (3600000 ms) for real-time status updates
+  - Can be set to longer intervals (e.g., 86400000 = 24 hours) if less frequent checks are acceptable
+  - Example: `3600000` = check license status every hour
+
+- **`updateCheckInterval`** (number, milliseconds, default: 86400000 = 24 hours)
+  - How often to check for app updates
+  - Recommended: Once per day (86400000 ms)
+  - Example: `86400000` = check for updates once per day
+
+- **`gracePeriod`** (number, milliseconds, default: 7200000 = 2 hours)
+  - Offline grace period when server is unreachable
+  - App can continue functioning during this period if last license check was valid
+  - Example: `7200000` = 2 hours grace period
+
+### Example Configuration Values
+
+```json
+{
+  "license": {
+    "trialDays": 14,                    // 14-day trial
+    "leaseTokenRefreshInterval": 3600000, // Refresh token every hour
+    "licenseCheckInterval": 3600000,     // Check trial/payment status every hour
+    "updateCheckInterval": 86400000,      // Check for updates once per day
+    "gracePeriod": 7200000               // 2 hours offline grace period
+  }
+}
+```
+
+**Recommended Settings:**
+- **Development:** Shorter intervals for testing (e.g., 60000 = 1 minute)
+- **Production:** Longer intervals to reduce server load (e.g., 3600000 = 1 hour)
 
 ---
 
@@ -463,6 +519,7 @@ class LicenseManager {
     this.leaseToken = null;
     this.licenseStatus = null;
     this.refreshInterval = null;
+    this.licenseCheckInterval = null;
     this.updateCheckInterval = null;
   }
 
@@ -478,6 +535,9 @@ class LicenseManager {
 
       // Start token refresh
       this.startTokenRefresh();
+
+      // Start license status checks (trial/payment verification)
+      this.startLicenseChecks();
 
       // Start update checks
       if (config.get('update.enabled')) {
@@ -526,6 +586,58 @@ class LicenseManager {
         console.error('Token refresh error:', error);
       }
     }, interval);
+  }
+
+  startLicenseChecks() {
+    const interval = config.get('license.licenseCheckInterval');
+    
+    this.licenseCheckInterval = setInterval(async () => {
+      try {
+        const status = await apiClient.getLicenseStatus();
+        const previousStatus = this.licenseStatus;
+        this.licenseStatus = status.status;
+        
+        // Detect status changes
+        if (previousStatus !== this.licenseStatus) {
+          if (this.licenseStatus === 'expired') {
+            // Trial expired - show upgrade prompt
+            this.handleTrialExpired();
+          } else if (this.licenseStatus === 'active' && previousStatus === 'trial') {
+            // Upgraded to paid - show success message
+            this.handleUpgradeSuccess();
+          }
+        }
+      } catch (error) {
+        console.error('License check error:', error);
+        // Handle errors (e.g., use cached status during grace period)
+      }
+    }, interval);
+
+    // Check immediately on startup
+    this.checkLicenseStatus();
+  }
+
+  async checkLicenseStatus() {
+    try {
+      const status = await apiClient.getLicenseStatus();
+      this.licenseStatus = status.status;
+      return status;
+    } catch (error) {
+      console.error('License status check failed:', error);
+      throw error;
+    }
+  }
+
+  handleTrialExpired() {
+    // Show trial expired UI
+    console.log('Trial expired - show upgrade prompt');
+    // Emit event or show UI
+  }
+
+  handleUpgradeSuccess() {
+    // Show upgrade success message
+    console.log('Upgraded to paid subscription');
+    // Emit event or show UI
   }
 
   async checkForUpdate() {
@@ -601,6 +713,9 @@ class LicenseManager {
   stop() {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
+    }
+    if (this.licenseCheckInterval) {
+      clearInterval(this.licenseCheckInterval);
     }
     if (this.updateCheckInterval) {
       clearInterval(this.updateCheckInterval);

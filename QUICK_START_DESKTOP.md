@@ -252,12 +252,24 @@ main().catch(console.error);
 ```json
 {
   "license": {
+    "trialDays": 14,                          // Number of trial days (14-day trial)
     "leaseTokenRefreshInterval": 3600000,     // Refresh token every hour
+    "licenseCheckInterval": 3600000,          // Check trial/payment status every hour
     "updateCheckInterval": 86400000,          // Check updates once per day
     "gracePeriod": 7200000                   // Offline grace period (2 hours)
   }
 }
 ```
+
+**Configuration Explained:**
+- **`trialDays`**: Number of days for the trial period (default: 14)
+- **`leaseTokenRefreshInterval`**: How often to refresh the JWT lease token (default: 1 hour)
+- **`licenseCheckInterval`**: How often to check if user is on trial or has active payment (default: 1 hour)
+  - This determines how frequently the app verifies license status changes
+  - Set to shorter intervals (e.g., 60000 = 1 minute) for faster status updates
+  - Set to longer intervals (e.g., 86400000 = 24 hours) to reduce server load
+- **`updateCheckInterval`**: How often to check for app updates (default: 24 hours)
+- **`gracePeriod`**: Offline grace period when server is unreachable (default: 2 hours)
 
 ### Update Configuration
 ```json

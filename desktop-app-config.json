@@ -6,7 +6,9 @@
     "retryDelay": 1000
   },
   "license": {
+    "trialDays": 14,
     "leaseTokenRefreshInterval": 3600000,
+    "licenseCheckInterval": 3600000,
     "updateCheckInterval": 86400000,
     "gracePeriod": 7200000
   },

@@ -7,13 +7,77 @@
  */
 
 const express = require('express');
-const { body, validationResult, query } = require('express-validator');
+const { body, validationResult, query, param } = require('express-validator');
 const { requireAdmin } = require('../middleware/adminAuth');
 const UpdateService = require('../services/updateService');
+const { User, Device, Subscription, DeviceUser } = require('../models');
+const { Op } = require('sequelize');
 
 const router = express.Router();
 
-// All admin routes require admin authentication
+/**
+ * POST /api/admin/login
+ *
+ * Simple admin login endpoint.
+ *
+ * For now, this validates a single hardcoded admin user:
+ * - email: visionai-desktop@gmail.com
+ * - password: Demo@123
+ *
+ * On success, it returns a token that must be sent as X-Admin-Token
+ * for all subsequent admin requests.
+ *
+ * SECURITY: In production, replace this with a proper admin auth system
+ * (hashed passwords in DB, JWTs, etc.).
+ */
+router.post(
+  '/login',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('password').isString().notEmpty().withMessage('Password is required')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          error: 'Validation Error',
+          message: 'Invalid credentials',
+          details: errors.array()
+        });
+      }
+
+      const { email, password } = req.body;
+
+      // TEMPORARY: Hardcoded admin credentials
+      const ADMIN_EMAIL = 'visionai-desktop@gmail.com';
+      const ADMIN_PASSWORD = 'Demo@123';
+
+      if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+        return res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid email or password'
+        });
+      }
+
+      // Use the same token that middleware expects
+      const token = process.env.ADMIN_TOKEN || 'test-admin-token';
+
+      return res.status(200).json({
+        token,
+        email
+      });
+    } catch (error) {
+      console.error('Admin login error:', error);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to login'
+      });
+    }
+  }
+);
+
+// All routes below this line require admin authentication
 router.use(requireAdmin);
 
 /**
@@ -235,5 +299,273 @@ router.get(
     }
   }
 );
+
+/**
+ * GET /api/admin/users
+ * 
+ * List all users
+ */
+router.get('/users', async (req, res) => {
+  try {
+    const users = await User.findAll({
+      order: [['created_at', 'DESC']],
+      attributes: ['id', 'email', 'max_devices', 'created_at', 'updated_at']
+    });
+
+    return res.status(200).json({ users });
+  } catch (error) {
+    console.error('List users error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to list users'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id
+ * 
+ * Get user details
+ */
+router.get('/users/:id', [
+  param('id').isInt().withMessage('User ID must be an integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Invalid request parameters',
+        details: errors.array()
+      });
+    }
+
+    const userId = parseInt(req.params.id);
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'email', 'max_devices', 'created_at', 'updated_at']
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'User not found'
+      });
+    }
+
+    return res.status(200).json({ user });
+  } catch (error) {
+    console.error('Get user error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get user'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id/devices
+ * 
+ * Get devices for a user
+ */
+router.get('/users/:id/devices', [
+  param('id').isInt().withMessage('User ID must be an integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Invalid request parameters',
+        details: errors.array()
+      });
+    }
+
+    const userId = parseInt(req.params.id);
+    const deviceUsers = await DeviceUser.findAll({
+      where: { user_id: userId },
+      include: [{
+        model: Device,
+        as: 'device',
+        attributes: ['id', 'device_hash', 'trial_started_at', 'trial_ended_at', 'trial_consumed', 'first_seen_at', 'last_seen_at']
+      }]
+    });
+
+    const devices = deviceUsers.map(du => du.device).filter(Boolean);
+
+    return res.status(200).json({ devices });
+  } catch (error) {
+    console.error('Get user devices error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get user devices'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id/subscriptions
+ * 
+ * Get subscriptions for a user
+ */
+router.get('/users/:id/subscriptions', [
+  param('id').isInt().withMessage('User ID must be an integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Invalid request parameters',
+        details: errors.array()
+      });
+    }
+
+    const userId = parseInt(req.params.id);
+    const subscriptions = await Subscription.findAll({
+      where: { user_id: userId },
+      order: [['created_at', 'DESC']],
+      attributes: ['id', 'user_id', 'stripe_customer_id', 'stripe_subscription_id', 'status', 'created_at', 'updated_at']
+    });
+
+    return res.status(200).json({ subscriptions });
+  } catch (error) {
+    console.error('Get user subscriptions error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get user subscriptions'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/devices
+ * 
+ * List all devices
+ */
+router.get('/devices', async (req, res) => {
+  try {
+    const devices = await Device.findAll({
+      order: [['created_at', 'DESC']],
+      attributes: ['id', 'device_hash', 'trial_started_at', 'trial_ended_at', 'trial_consumed', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at']
+    });
+
+    return res.status(200).json({ devices });
+  } catch (error) {
+    console.error('List devices error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to list devices'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/devices/:id
+ * 
+ * Get device details
+ */
+router.get('/devices/:id', [
+  param('id').isInt().withMessage('Device ID must be an integer')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Invalid request parameters',
+        details: errors.array()
+      });
+    }
+
+    const deviceId = parseInt(req.params.id);
+    const device = await Device.findByPk(deviceId);
+
+    if (!device) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Device not found'
+      });
+    }
+
+    return res.status(200).json({ device });
+  } catch (error) {
+    console.error('Get device error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get device'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/subscriptions
+ * 
+ * List all subscriptions
+ */
+router.get('/subscriptions', async (req, res) => {
+  try {
+    const subscriptions = await Subscription.findAll({
+      order: [['created_at', 'DESC']],
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'email']
+      }]
+    });
+
+    return res.status(200).json({
+      subscriptions: subscriptions.map(sub => ({
+        id: sub.id,
+        user_id: sub.user_id,
+        user_email: sub.user?.email,
+        stripe_customer_id: sub.stripe_customer_id,
+        stripe_subscription_id: sub.stripe_subscription_id,
+        status: sub.status,
+        created_at: sub.created_at,
+        updated_at: sub.updated_at
+      }))
+    });
+  } catch (error) {
+    console.error('List subscriptions error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to list subscriptions'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/stats
+ * 
+ * Get dashboard statistics
+ */
+router.get('/stats', async (req, res) => {
+  try {
+    const [totalUsers, totalDevices, activeSubscriptions, activeTrials] = await Promise.all([
+      User.count(),
+      Device.count(),
+      Subscription.count({ where: { status: 'active' } }),
+      Device.count({
+        where: {
+          trial_started_at: { [Op.ne]: null },
+          trial_ended_at: { [Op.gte]: new Date() }
+        }
+      })
+    ]);
+
+    return res.status(200).json({
+      totalUsers,
+      totalDevices,
+      activeSubscriptions,
+      activeTrials
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get statistics'
+    });
+  }
+});
 
 module.exports = router;

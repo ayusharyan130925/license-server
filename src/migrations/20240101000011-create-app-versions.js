@@ -79,27 +79,53 @@ module.exports = {
     });
 
     // Indexes for efficient queries
-    await queryInterface.addIndex('app_versions', ['platform', 'arch', 'channel', 'is_active'], {
-      name: 'idx_app_versions_lookup'
-    });
+    // Check if indexes exist before creating (handles partial migration runs)
+    const [results] = await queryInterface.sequelize.query(
+      "SHOW INDEXES FROM app_versions WHERE Key_name = 'idx_app_versions_lookup'"
+    );
+    if (results.length === 0) {
+      await queryInterface.addIndex('app_versions', ['platform', 'arch', 'channel', 'is_active'], {
+        name: 'idx_app_versions_lookup'
+      });
+    }
 
-    await queryInterface.addIndex('app_versions', ['build_number'], {
-      name: 'idx_app_versions_build_number'
-    });
+    const [results2] = await queryInterface.sequelize.query(
+      "SHOW INDEXES FROM app_versions WHERE Key_name = 'idx_app_versions_build_number'"
+    );
+    if (results2.length === 0) {
+      await queryInterface.addIndex('app_versions', ['build_number'], {
+        name: 'idx_app_versions_build_number'
+      });
+    }
 
-    await queryInterface.addIndex('app_versions', ['channel'], {
-      name: 'idx_app_versions_channel'
-    });
+    const [results3] = await queryInterface.sequelize.query(
+      "SHOW INDEXES FROM app_versions WHERE Key_name = 'idx_app_versions_channel'"
+    );
+    if (results3.length === 0) {
+      await queryInterface.addIndex('app_versions', ['channel'], {
+        name: 'idx_app_versions_channel'
+      });
+    }
 
-    await queryInterface.addIndex('app_versions', ['is_active'], {
-      name: 'idx_app_versions_active'
-    });
+    const [results4] = await queryInterface.sequelize.query(
+      "SHOW INDEXES FROM app_versions WHERE Key_name = 'idx_app_versions_active'"
+    );
+    if (results4.length === 0) {
+      await queryInterface.addIndex('app_versions', ['is_active'], {
+        name: 'idx_app_versions_active'
+      });
+    }
 
     // Composite index for version lookups
-    await queryInterface.addIndex('app_versions', ['platform', 'arch', 'channel', 'build_number'], {
-      name: 'idx_app_versions_unique_lookup',
-      unique: false
-    });
+    const [results5] = await queryInterface.sequelize.query(
+      "SHOW INDEXES FROM app_versions WHERE Key_name = 'idx_app_versions_unique_lookup'"
+    );
+    if (results5.length === 0) {
+      await queryInterface.addIndex('app_versions', ['platform', 'arch', 'channel', 'build_number'], {
+        name: 'idx_app_versions_unique_lookup',
+        unique: false
+      });
+    }
   },
 
   async down(queryInterface, Sequelize) {
