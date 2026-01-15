@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const config = require('./config');
 const routes = require('./routes');
 const db = require('./models');
+const CleanupService = require('./services/cleanupService');
 
 /**
  * License & Billing Server
@@ -98,6 +99,9 @@ async function startServer() {
         console.log(`✓ Environment: ${config.nodeEnv}`);
         console.log(`✓ API available at http://localhost:${PORT}/api`);
       });
+
+      // Start cleanup job (runs periodically)
+      startCleanupJob();
     }
   } catch (error) {
     if (config.nodeEnv !== 'test') {
@@ -122,6 +126,45 @@ process.on('SIGINT', async () => {
   await db.sequelize.close();
   process.exit(0);
 });
+
+/**
+ * Start cleanup job for old database records
+ * Runs periodically to clean up old rate limit windows and risk events
+ */
+function startCleanupJob() {
+  const intervalHours = config.abuseDetection?.cleanupIntervalHours || 24;
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+
+  // Run cleanup immediately on startup (after a short delay)
+  setTimeout(async () => {
+    try {
+      console.log('Running initial cleanup job...');
+      const result = await CleanupService.runCleanup({
+        rateLimitRetentionDays: config.abuseDetection?.rateLimitRetentionDays || 7,
+        riskEventRetentionDays: config.abuseDetection?.riskEventRetentionDays || 90
+      });
+      console.log(`✓ Cleanup completed: ${result.rateLimitWindows.deleted} rate limit windows, ${result.riskEvents.deleted} risk events`);
+    } catch (error) {
+      console.error('Cleanup job error:', error);
+    }
+  }, 5000); // Wait 5 seconds after server starts
+
+  // Schedule periodic cleanup
+  setInterval(async () => {
+    try {
+      console.log('Running scheduled cleanup job...');
+      const result = await CleanupService.runCleanup({
+        rateLimitRetentionDays: config.abuseDetection?.rateLimitRetentionDays || 7,
+        riskEventRetentionDays: config.abuseDetection?.riskEventRetentionDays || 90
+      });
+      console.log(`✓ Cleanup completed: ${result.rateLimitWindows.deleted} rate limit windows, ${result.riskEvents.deleted} risk events`);
+    } catch (error) {
+      console.error('Cleanup job error:', error);
+    }
+  }, intervalMs);
+
+  console.log(`✓ Cleanup job scheduled (runs every ${intervalHours} hours)`);
+}
 
 // Start the server (skip in test mode)
 if (process.env.NODE_ENV !== 'test') {

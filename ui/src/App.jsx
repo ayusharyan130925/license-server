@@ -10,6 +10,7 @@ import Devices from './pages/Devices'
 import AppVersions from './pages/AppVersions'
 import TrialConfig from './pages/TrialConfig'
 import Subscriptions from './pages/Subscriptions'
+import AbuseMetrics from './pages/AbuseMetrics'
 import Login from './pages/Login'
 
 const theme = createTheme({
@@ -113,6 +114,14 @@ function AppRoutes() {
           element={
             <RequireAuth>
               <TrialConfig />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/abuse-metrics"
+          element={
+            <RequireAuth>
+              <AbuseMetrics />
             </RequireAuth>
           }
         />

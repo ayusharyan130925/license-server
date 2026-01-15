@@ -16,6 +16,8 @@ class JWTService {
    * @param {number} payload.device_id - Device ID
    * @param {string} payload.license_status - License status (trial|active|expired)
    * @param {Date|string} payload.expires_at - License expiration date
+   * @param {string} payload.plan - Plan name (trial|basic|pro|null)
+   * @param {Object} payload.features - Features object (max_cameras, pdf_export, fps_limit, cloud_backup)
    * @returns {string} - JWT token
    */
   static generateLeaseToken(payload) {
@@ -26,6 +28,13 @@ class JWTService {
       device_id: payload.device_id,
       license_status: payload.license_status,
       expires_at: payload.expires_at ? new Date(payload.expires_at).toISOString() : null,
+      plan: payload.plan || null,
+      features: payload.features || {
+        max_cameras: 0,
+        pdf_export: false,
+        fps_limit: 0,
+        cloud_backup: false
+      },
       iat: Math.floor(Date.now() / 1000)
     };
 

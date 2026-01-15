@@ -1,7 +1,7 @@
 const stripe = require('stripe');
 const { Op } = require('sequelize');
 const config = require('../config');
-const { User, Subscription, WebhookEvent } = require('../models');
+const { User, Subscription, WebhookEvent, Plan } = require('../models');
 const db = require('../models');
 
 // Initialize Stripe with secret key
@@ -155,6 +155,13 @@ class StripeService {
         throw new Error('User ID not found in customer metadata');
       }
 
+      // Determine plan based on subscription (default to 'basic' for active subscriptions)
+      // In production, you might map Stripe price IDs to plans
+      const plan = await Plan.findOne({
+        where: { name: 'basic' },
+        transaction
+      });
+
       // Create or update subscription record
       const [dbSubscription] = await Subscription.findOrCreate({
         where: { stripe_subscription_id: subscriptionId },
@@ -162,7 +169,8 @@ class StripeService {
           user_id: userId,
           stripe_customer_id: customerId,
           stripe_subscription_id: subscriptionId,
-          status: 'active'
+          status: 'active',
+          plan_id: plan ? plan.id : null
         },
         transaction
       });
@@ -171,6 +179,9 @@ class StripeService {
       if (!dbSubscription.isNewRecord) {
         dbSubscription.stripe_customer_id = customerId;
         dbSubscription.status = 'active';
+        if (plan && !dbSubscription.plan_id) {
+          dbSubscription.plan_id = plan.id;
+        }
         await dbSubscription.save({ transaction });
       }
 

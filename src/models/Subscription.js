@@ -27,6 +27,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('trial', 'active', 'expired'),
       allowNull: false,
       defaultValue: 'trial'
+    },
+    plan_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'plans',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'subscriptions',

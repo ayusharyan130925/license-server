@@ -35,6 +35,11 @@ module.exports = {
     defaultMaxDevicesPerUser: parseInt(process.env.DEFAULT_MAX_DEVICES_PER_USER || '2', 10),
     maxDevicesPerIpPer24h: parseInt(process.env.MAX_DEVICES_PER_IP_PER_24H || '5', 10),
     maxDevicesPerUserPer24h: parseInt(process.env.MAX_DEVICES_PER_USER_PER_24H || '3', 10),
-    deviceChurnThreshold: parseInt(process.env.DEVICE_CHURN_THRESHOLD || '5', 10)
+    deviceChurnThreshold: parseInt(process.env.DEVICE_CHURN_THRESHOLD || '5', 10),
+    // Cleanup configuration
+    rateLimitRetentionDays: parseInt(process.env.RATE_LIMIT_RETENTION_DAYS || '7', 10),
+    riskEventRetentionDays: parseInt(process.env.RISK_EVENT_RETENTION_DAYS || '90', 10),
+    // Cleanup job schedule (cron expression or interval in ms)
+    cleanupIntervalHours: parseInt(process.env.CLEANUP_INTERVAL_HOURS || '24', 10)
   }
 };

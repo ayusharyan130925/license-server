@@ -53,3 +53,20 @@ export const getSubscriptions = (filters = {}) => {
 export const getStats = () => {
   return apiClient.get('/admin/stats')
 }
+
+// Abuse Metrics
+export const getAbuseMetrics = (filters = {}) => {
+  return apiClient.get('/admin/abuse/metrics', { params: filters })
+}
+
+export const getRiskEvents = (limit = 50) => {
+  return apiClient.get('/admin/abuse/risk-events', { params: { limit } })
+}
+
+export const getAbuseConfig = () => {
+  return apiClient.get('/admin/abuse/config')
+}
+
+export const runCleanup = (options = {}) => {
+  return apiClient.post('/admin/abuse/cleanup', options)
+}

@@ -21,6 +21,7 @@ import DevicesIcon from '@mui/icons-material/Devices'
 import CreditCardIcon from '@mui/icons-material/CreditCard'
 import SystemUpdateIcon from '@mui/icons-material/SystemUpdate'
 import SettingsIcon from '@mui/icons-material/Settings'
+import SecurityIcon from '@mui/icons-material/Security'
 
 const drawerWidth = 240
 
@@ -31,6 +32,7 @@ const menuItems = [
   { text: 'Subscriptions', icon: <CreditCardIcon />, path: '/subscriptions' },
   { text: 'App Versions', icon: <SystemUpdateIcon />, path: '/app-versions' },
   { text: 'Trial Config', icon: <SettingsIcon />, path: '/trial-config' },
+  { text: 'Abuse Metrics', icon: <SecurityIcon />, path: '/abuse-metrics' },
 ]
 
 function Layout({ children }) {

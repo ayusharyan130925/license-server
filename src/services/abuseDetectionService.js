@@ -73,39 +73,60 @@ class AbuseDetectionService {
   }
 
   /**
-   * Get or create rate limit record for identifier
+   * Get or create rate limit record for identifier (lazy creation)
+   * 
+   * OPTIMIZATION: Only creates row when first device is created that day.
+   * Uses findOrCreate for atomic operation.
+   * 
    * @param {string} identifier - IP address or user_id
    * @param {string} identifierType - 'ip' or 'user'
    * @param {Transaction} transaction - Database transaction
    * @returns {Promise<DeviceCreationLimit>}
    */
   static async getOrCreateRateLimit(identifier, identifierType, transaction = null) {
-    // Calculate 24-hour window start (current hour, rounded down)
+    // Calculate 24-hour window start (start of today)
     const now = new Date();
     const windowStart = new Date(now);
     windowStart.setHours(0, 0, 0, 0); // Start of today
 
-    const [limit] = await DeviceCreationLimit.findOrCreate({
+    // LAZY CREATION: Only create row when first device is created
+    // Try to find existing record first (faster lookup with index)
+    let limit = await DeviceCreationLimit.findOne({
       where: {
         identifier: identifier,
         identifier_type: identifierType,
         window_start: windowStart
       },
-      defaults: {
-        identifier: identifier,
-        identifier_type: identifierType,
-        window_start: windowStart,
-        device_count: 0
-      },
-      transaction
+      transaction,
+      lock: transaction ? transaction.LOCK.UPDATE : false
     });
 
     // If record exists but is from a previous day, reset it
-    const recordDate = new Date(limit.window_start);
-    if (recordDate.getTime() < windowStart.getTime()) {
-      limit.window_start = windowStart;
-      limit.device_count = 0;
-      await limit.save({ transaction });
+    if (limit) {
+      const recordDate = new Date(limit.window_start);
+      if (recordDate.getTime() < windowStart.getTime()) {
+        limit.window_start = windowStart;
+        limit.device_count = 0;
+        await limit.save({ transaction });
+      }
+    } else {
+      // LAZY CREATION: Create only when needed (first device of the day)
+      // Use findOrCreate for atomic operation (prevents race conditions)
+      const [createdLimit] = await DeviceCreationLimit.findOrCreate({
+        where: {
+          identifier: identifier,
+          identifier_type: identifierType,
+          window_start: windowStart
+        },
+        defaults: {
+          identifier: identifier,
+          identifier_type: identifierType,
+          window_start: windowStart,
+          device_count: 0
+        },
+        transaction
+      });
+      limit = createdLimit;
     }
 
     return limit;

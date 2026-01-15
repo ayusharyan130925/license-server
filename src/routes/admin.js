@@ -10,6 +10,8 @@ const express = require('express');
 const { body, validationResult, query, param } = require('express-validator');
 const { requireAdmin } = require('../middleware/adminAuth');
 const UpdateService = require('../services/updateService');
+const AbuseMetricsService = require('../services/abuseMetricsService');
+const CleanupService = require('../services/cleanupService');
 const { User, Device, Subscription, DeviceUser } = require('../models');
 const { Op } = require('sequelize');
 
@@ -509,27 +511,35 @@ router.get('/subscriptions', async (req, res) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'email']
+        attributes: ['id', 'email'],
+        required: false // LEFT JOIN - include subscriptions even if user doesn't exist
       }]
     });
 
     return res.status(200).json({
-      subscriptions: subscriptions.map(sub => ({
-        id: sub.id,
-        user_id: sub.user_id,
-        user_email: sub.user?.email,
-        stripe_customer_id: sub.stripe_customer_id,
-        stripe_subscription_id: sub.stripe_subscription_id,
-        status: sub.status,
-        created_at: sub.created_at,
-        updated_at: sub.updated_at
-      }))
+      subscriptions: subscriptions.map(sub => {
+        // Safely access user email
+        const userEmail = sub.user ? sub.user.email : null;
+        
+        return {
+          id: sub.id,
+          user_id: sub.user_id,
+          user_email: userEmail,
+          stripe_customer_id: sub.stripe_customer_id || null,
+          stripe_subscription_id: sub.stripe_subscription_id || null,
+          status: sub.status,
+          created_at: sub.created_at,
+          updated_at: sub.updated_at
+        };
+      })
     });
   } catch (error) {
     console.error('List subscriptions error:', error);
+    console.error('Error details:', error.stack);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: 'Failed to list subscriptions'
+      message: 'Failed to list subscriptions',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -564,6 +574,121 @@ router.get('/stats', async (req, res) => {
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to get statistics'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/abuse/metrics
+ * 
+ * Get abuse detection metrics and statistics
+ */
+router.get('/abuse/metrics', async (req, res) => {
+  try {
+    const startDate = req.query.startDate ? new Date(req.query.startDate) : undefined;
+    const endDate = req.query.endDate ? new Date(req.query.endDate) : undefined;
+    const eventType = req.query.eventType || null;
+
+    const summary = await AbuseMetricsService.getAbuseSummary({
+      startDate,
+      endDate,
+      eventType
+    });
+
+    return res.status(200).json(summary);
+  } catch (error) {
+    console.error('Get abuse metrics error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get abuse metrics'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/abuse/risk-events
+ * 
+ * Get recent risk events
+ */
+router.get('/abuse/risk-events', [
+  query('limit').optional().isInt({ min: 1, max: 500 }).withMessage('Limit must be between 1 and 500')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Invalid query parameters',
+        details: errors.array()
+      });
+    }
+
+    const limit = parseInt(req.query.limit || '50', 10);
+    const events = await AbuseMetricsService.getRecentRiskEvents(limit);
+
+    return res.status(200).json({ events });
+  } catch (error) {
+    console.error('Get risk events error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get risk events'
+    });
+  }
+});
+
+/**
+ * POST /api/admin/abuse/cleanup
+ * 
+ * Manually trigger cleanup job
+ */
+router.post('/abuse/cleanup', async (req, res) => {
+  try {
+    const {
+      rateLimitRetentionDays = 7,
+      riskEventRetentionDays = 90
+    } = req.body;
+
+    const result = await CleanupService.runCleanup({
+      rateLimitRetentionDays,
+      riskEventRetentionDays
+    });
+
+    return res.status(200).json({
+      message: 'Cleanup completed successfully',
+      result
+    });
+  } catch (error) {
+    console.error('Cleanup error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to run cleanup'
+    });
+  }
+});
+
+/**
+ * GET /api/admin/abuse/config
+ * 
+ * Get current abuse detection configuration
+ */
+router.get('/abuse/config', async (req, res) => {
+  try {
+    const config = require('../config');
+    
+    return res.status(200).json({
+      defaultMaxDevicesPerUser: config.abuseDetection.defaultMaxDevicesPerUser,
+      maxDevicesPerIpPer24h: config.abuseDetection.maxDevicesPerIpPer24h,
+      maxDevicesPerUserPer24h: config.abuseDetection.maxDevicesPerUserPer24h,
+      deviceChurnThreshold: config.abuseDetection.deviceChurnThreshold,
+      rateLimitRetentionDays: config.abuseDetection.rateLimitRetentionDays,
+      riskEventRetentionDays: config.abuseDetection.riskEventRetentionDays,
+      cleanupIntervalHours: config.abuseDetection.cleanupIntervalHours
+    });
+  } catch (error) {
+    console.error('Get abuse config error:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to get abuse configuration'
     });
   }
 });

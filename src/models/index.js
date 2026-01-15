@@ -27,11 +27,16 @@ const WebhookEvent = require('./WebhookEvent')(sequelize, Sequelize.DataTypes);
 const DeviceCreationLimit = require('./DeviceCreationLimit')(sequelize, Sequelize.DataTypes);
 const RiskEvent = require('./RiskEvent')(sequelize, Sequelize.DataTypes);
 const AppVersion = require('./AppVersion')(sequelize, Sequelize.DataTypes);
+const Plan = require('./Plan')(sequelize, Sequelize.DataTypes);
 
 // Define associations
 // User has many Subscriptions
 User.hasMany(Subscription, { foreignKey: 'user_id', as: 'subscriptions' });
 Subscription.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Plan has many Subscriptions
+Plan.hasMany(Subscription, { foreignKey: 'plan_id', as: 'subscriptions' });
+Subscription.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
 
 // User has many Devices through DeviceUser (many-to-many)
 User.belongsToMany(Device, { 
@@ -66,7 +71,8 @@ const db = {
   WebhookEvent,
   DeviceCreationLimit,
   RiskEvent,
-  AppVersion
+  AppVersion,
+  Plan
 };
 
 module.exports = db;
