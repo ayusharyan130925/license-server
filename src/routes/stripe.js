@@ -65,6 +65,20 @@ router.post(
           break;
         }
 
+        case 'invoice.payment_succeeded': {
+          const invoice = event.data.object;
+          // Store payment details and update subscription period
+          await StripeService.handleInvoicePaymentSucceeded(invoice, eventId);
+          break;
+        }
+
+        case 'invoice.payment_failed': {
+          const invoice = event.data.object;
+          // Record failed payment attempt
+          await StripeService.handleInvoicePaymentFailed(invoice, eventId);
+          break;
+        }
+
         default:
           console.log(`Unhandled event type: ${event.type}`);
           // Still mark as processed to prevent reprocessing

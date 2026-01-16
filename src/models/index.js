@@ -28,6 +28,7 @@ const DeviceCreationLimit = require('./DeviceCreationLimit')(sequelize, Sequeliz
 const RiskEvent = require('./RiskEvent')(sequelize, Sequelize.DataTypes);
 const AppVersion = require('./AppVersion')(sequelize, Sequelize.DataTypes);
 const Plan = require('./Plan')(sequelize, Sequelize.DataTypes);
+const Payment = require('./Payment')(sequelize, Sequelize.DataTypes);
 
 // Define associations
 // User has many Subscriptions
@@ -61,6 +62,12 @@ DeviceUser.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 RiskEvent.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 RiskEvent.belongsTo(Device, { foreignKey: 'device_id', as: 'device' });
 
+// Payment associations
+User.hasMany(Payment, { foreignKey: 'user_id', as: 'payments' });
+Payment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+Subscription.hasMany(Payment, { foreignKey: 'subscription_id', as: 'payments' });
+Payment.belongsTo(Subscription, { foreignKey: 'subscription_id', as: 'subscription' });
+
 const db = {
   sequelize,
   Sequelize,
@@ -72,7 +79,8 @@ const db = {
   DeviceCreationLimit,
   RiskEvent,
   AppVersion,
-  Plan
+  Plan,
+  Payment
 };
 
 module.exports = db;

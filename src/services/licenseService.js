@@ -205,10 +205,44 @@ class LicenseService {
   }
 
   /**
+   * Check if subscription is currently active (status is active AND period hasn't ended)
+   * @param {Subscription} subscription - Subscription instance
+   * @returns {boolean} - True if subscription is active
+   */
+  static isSubscriptionActive(subscription) {
+    if (!subscription || subscription.status !== 'active') {
+      return false;
+    }
+
+    // Check if subscription period has ended
+    if (subscription.current_period_end) {
+      const now = new Date();
+      const periodEnd = new Date(subscription.current_period_end);
+      // If period has ended, subscription is no longer active
+      if (now > periodEnd) {
+        return false;
+      }
+    }
+
+    // Check if subscription is set to cancel at period end
+    if (subscription.cancel_at_period_end && subscription.current_period_end) {
+      const now = new Date();
+      const periodEnd = new Date(subscription.current_period_end);
+      // If we're past the cancellation date, subscription is expired
+      if (now > periodEnd) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Get license status for a user-device pair
    * Priority: Active subscription > Trial > Expired
    * 
    * SECURITY: Updates last_seen_at to track device activity
+   * Checks subscription current_period_end to determine if license is still valid
    * 
    * @param {number} userId - User ID
    * @param {number} deviceId - Device ID
@@ -229,11 +263,23 @@ class LicenseService {
 
     // Check for active subscription first
     const subscription = await this.getActiveSubscription(userId);
-    if (subscription && subscription.status === 'active') {
+    if (subscription && this.isSubscriptionActive(subscription)) {
+      // Calculate days until expiration if period_end is set
+      let expiresAt = null;
+      let daysLeft = null;
+      
+      if (subscription.current_period_end) {
+        expiresAt = subscription.current_period_end;
+        const now = new Date();
+        const periodEnd = new Date(subscription.current_period_end);
+        const days = Math.ceil((periodEnd - now) / (1000 * 60 * 60 * 24));
+        daysLeft = Math.max(0, days);
+      }
+
       return {
         status: 'active',
-        expires_at: null, // Subscriptions don't expire (until cancelled)
-        days_left: null,
+        expires_at: expiresAt,
+        days_left: daysLeft,
         trial_expired: false
       };
     }

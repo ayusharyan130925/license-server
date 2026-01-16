@@ -7,6 +7,7 @@ const config = require('./config');
 const routes = require('./routes');
 const db = require('./models');
 const CleanupService = require('./services/cleanupService');
+const LicenseExpirationService = require('./services/licenseExpirationService');
 
 /**
  * License & Billing Server
@@ -85,6 +86,19 @@ async function startServer() {
     // Only log in non-test environments
     if (config.nodeEnv !== 'test') {
       console.log('✓ Database connection established successfully');
+      
+      // Run migrations automatically on startup (only in non-test environments)
+      // Migrations will skip tables that already exist
+      try {
+        const { runMigrations } = require('./scripts/runMigrations');
+        process.env.SILENT_MIGRATIONS = 'true';
+        await runMigrations();
+        delete process.env.SILENT_MIGRATIONS;
+      } catch (migrationError) {
+        delete process.env.SILENT_MIGRATIONS;
+        // If migrations fail, log but don't crash (might be expected in some cases)
+        console.warn('⚠️  Migration warning (may be expected):', migrationError.message);
+      }
     }
 
     // Sync models (in production, use migrations only - sync is for development)
@@ -102,6 +116,9 @@ async function startServer() {
 
       // Start cleanup job (runs periodically)
       startCleanupJob();
+      
+      // Start license expiration job (runs periodically)
+      startLicenseExpirationJob();
     }
   } catch (error) {
     if (config.nodeEnv !== 'test') {
@@ -164,6 +181,16 @@ function startCleanupJob() {
   }, intervalMs);
 
   console.log(`✓ Cleanup job scheduled (runs every ${intervalHours} hours)`);
+}
+
+/**
+ * Start license expiration job
+ * Runs periodically to expire licenses when their subscription period ends
+ */
+function startLicenseExpirationJob() {
+  const intervalMinutes = 60; // Run every hour
+  LicenseExpirationService.scheduleExpirationJob(intervalMinutes);
+  console.log(`✓ License expiration job scheduled (runs every ${intervalMinutes} minutes)`);
 }
 
 // Start the server (skip in test mode)

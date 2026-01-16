@@ -1,5 +1,6 @@
 const { Plan, Subscription, Device } = require('../models');
 const { Op } = require('sequelize');
+const db = require('../models');
 
 /**
  * Entitlements Service
@@ -14,12 +15,45 @@ const { Op } = require('sequelize');
  */
 class EntitlementsService {
   /**
+   * Check if subscription is currently active (status is active AND period hasn't ended)
+   * @param {Subscription} subscription - Subscription instance
+   * @returns {boolean} - True if subscription is active
+   */
+  static isSubscriptionActive(subscription) {
+    if (!subscription || subscription.status !== 'active') {
+      return false;
+    }
+
+    // Check if subscription period has ended
+    if (subscription.current_period_end) {
+      const now = new Date();
+      const periodEnd = new Date(subscription.current_period_end);
+      // If period has ended, subscription is no longer active
+      if (now > periodEnd) {
+        return false;
+      }
+    }
+
+    // Check if subscription is set to cancel at period end
+    if (subscription.cancel_at_period_end && subscription.current_period_end) {
+      const now = new Date();
+      const periodEnd = new Date(subscription.current_period_end);
+      // If we're past the cancellation date, subscription is expired
+      if (now > periodEnd) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
    * Resolve the effective plan for a user-device pair
    * 
    * Priority:
-   * 1. Active subscription → subscription.plan
+   * 1. Active subscription (with valid period) → subscription.plan
    * 2. Active trial → trial plan
-   * 3. Otherwise → null (expired, no features)
+   * 3. Otherwise → expired plan (no features)
    * 
    * @param {number} userId - User ID
    * @param {number} deviceId - Device ID
@@ -28,7 +62,7 @@ class EntitlementsService {
    */
   static async resolveEffectivePlan(userId, deviceId, transaction = null) {
     // Priority 1: Check for active subscription with plan
-    const activeSubscription = await Subscription.findOne({
+    const subscription = await Subscription.findOne({
       where: {
         user_id: userId,
         status: 'active'
@@ -42,8 +76,9 @@ class EntitlementsService {
       transaction
     });
 
-    if (activeSubscription && activeSubscription.plan) {
-      return activeSubscription.plan;
+    // Check if subscription is actually active (period hasn't ended)
+    if (subscription && this.isSubscriptionActive(subscription) && subscription.plan) {
+      return subscription.plan;
     }
 
     // Priority 2: Check for active trial
@@ -160,10 +195,27 @@ class EntitlementsService {
           days_left = Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)));
         }
       } else {
-        // Active subscription
+        // Active subscription - check if we have period_end date
         status = 'active';
-        expires_at = null; // Subscriptions don't expire until cancelled
-        days_left = null;
+        
+        // Find the active subscription to get period_end
+        const subscription = await Subscription.findOne({
+          where: {
+            user_id: userId,
+            status: 'active'
+          },
+          transaction
+        });
+
+        if (subscription && subscription.current_period_end) {
+          expires_at = subscription.current_period_end;
+          const now = new Date();
+          const periodEnd = new Date(subscription.current_period_end);
+          days_left = Math.max(0, Math.ceil((periodEnd - now) / (1000 * 60 * 60 * 24)));
+        } else {
+          expires_at = null; // No expiration date set
+          days_left = null;
+        }
       }
     } else {
       // Expired

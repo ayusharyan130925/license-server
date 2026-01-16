@@ -1,260 +1,200 @@
-import React, { useEffect, useState } from 'react'
+import React, { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  Box,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  CircularProgress,
-  Chip,
-  IconButton,
-  TextField,
-  InputAdornment,
-  Tooltip,
-  Card,
-  CardContent,
-  Grid,
-} from '@mui/material'
-import SearchIcon from '@mui/icons-material/Search'
+import { Box, Grid, Chip, IconButton, Tooltip } from '@mui/material'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import PersonIcon from '@mui/icons-material/Person'
 import { getUsers } from '../api/admin'
-import { format } from 'date-fns'
-import { TableSkeleton } from '../components/LoadingSkeleton'
-import { useToast } from '../components/ToastContext'
+import { useDataFetch, useTable } from '../hooks'
+import { PageHeader, DataTable, FilterBar } from '../components/shared'
+import StatCard from '../components/StatCard'
+import { formatDate } from '../utils/formatters'
+import { appColors } from '../constants/colors'
 
 function Users() {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
   const navigate = useNavigate()
-  const { showToast } = useToast()
 
-  useEffect(() => {
-    loadUsers()
-  }, [])
-
-  const loadUsers = async () => {
-    try {
-      setLoading(true)
-      const data = await getUsers()
-      setUsers(data.users || [])
-    } catch (error) {
-      console.error('Failed to load users:', error)
-      showToast('Failed to load users. Please try again.', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const filteredUsers = users.filter((user) =>
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.id?.toString().includes(searchTerm)
+  // Fetch users data
+  const { data: usersData, loading } = useDataFetch(
+    () => getUsers(),
+    [],
+    { errorMessage: 'Failed to load users' }
   )
 
-  const stats = {
-    total: users.length,
-    withCustomLimit: users.filter(u => u.max_devices).length,
-    recent: users.filter(u => {
+  const users = usersData?.users || []
+
+  // Table configuration
+  const columns = [
+    {
+      id: 'id',
+      label: 'User ID',
+      accessor: 'id',
+      align: 'left',
+      render: (value) => (
+        <Box component="span" sx={{ fontFamily: 'monospace', color: appColors.text.primary }}>
+          #{value}
+        </Box>
+      ),
+    },
+    {
+      id: 'email',
+      label: 'Email Address',
+      accessor: 'email',
+      sortable: true,
+    },
+    {
+      id: 'max_devices',
+      label: 'Max Devices',
+      accessor: 'max_devices',
+      align: 'center',
+      render: (value, row) => {
+        if (value) {
+          return (
+            <Chip
+              label={`${value} devices`}
+              size="small"
+              sx={{
+                backgroundColor: appColors.primary.lighter,
+                color: appColors.primary.darker,
+                fontWeight: 500,
+              }}
+            />
+          )
+        }
+        return (
+          <Tooltip title="Using default device limit (2-3 devices)" arrow>
+            <Chip
+              label="Default"
+              size="small"
+              sx={{
+                backgroundColor: appColors.background.default,
+                color: appColors.text.secondary,
+              }}
+            />
+          </Tooltip>
+        )
+      },
+    },
+    {
+      id: 'created_at',
+      label: 'Registered',
+      accessor: 'created_at',
+      type: 'date',
+      sortable: true,
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'center',
+      sortable: false,
+      render: (_, row) => (
+        <Tooltip title="View user details" arrow>
+          <IconButton
+            size="small"
+            onClick={() => navigate(`/users/${row.id}`)}
+            sx={{ color: appColors.primary.main }}
+          >
+            <VisibilityIcon />
+          </IconButton>
+        </Tooltip>
+      ),
+    },
+  ]
+
+  // Table state management
+  const {
+    data: tableData,
+    totalCount,
+    sortBy,
+    sortOrder,
+    page,
+    rowsPerPage,
+    searchTerm,
+    handleSort,
+    handleChangePage,
+    handleChangeRowsPerPage,
+    handleSearch,
+  } = useTable(users, {
+    initialSortBy: 'created_at',
+    initialSortOrder: 'desc',
+    initialRowsPerPage: 10,
+    searchFields: ['email', 'id'],
+  })
+
+  // Calculate statistics
+  const stats = useMemo(() => {
+    const total = users.length
+    const withCustomLimit = users.filter((u) => u.max_devices).length
+    const recent = users.filter((u) => {
       if (!u.created_at) return false
       const created = new Date(u.created_at)
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
       return created >= weekAgo
-    }).length,
-  }
+    }).length
 
-  if (loading) {
-    return (
-      <Box>
-        <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
-          Users
-        </Typography>
-        <TableSkeleton rows={8} columns={5} />
-      </Box>
-    )
-  }
+    return { total, withCustomLimit, recent }
+  }, [users])
 
   return (
     <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Box>
-          <Typography variant="h4" gutterBottom sx={{ fontWeight: 700, color: 'text.primary' }}>
-            Users Management
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-            View and manage all registered users in the system
-          </Typography>
-        </Box>
-        <TextField
-          size="small"
-          placeholder="Search by email or ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ minWidth: 300 }}
-        />
-      </Box>
+      <PageHeader
+        title="User Management"
+        subtitle="View and manage all registered users in the system"
+      />
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
-          <Card
-            sx={{
-              boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)',
-            }}
-          >
-            <CardContent>
-              <Box display="flex" alignItems="center" gap={1} mb={1}>
-                <PersonIcon sx={{ color: 'primary.main' }} />
-                <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 700 }}>
-                  {stats.total}
-                </Typography>
-              </Box>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                Total Users
-              </Typography>
-            </CardContent>
-          </Card>
+      {/* Statistics Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={4}>
+          <StatCard
+            title="Total Users"
+            value={stats.total}
+            icon={<PersonIcon sx={{ fontSize: 40 }} />}
+            color="primary"
+            tooltip="Total number of registered users"
+          />
         </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card
-            sx={{
-              boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)',
-            }}
-          >
-            <CardContent>
-              <Box display="flex" alignItems="center" gap={1} mb={1}>
-                <PersonIcon sx={{ color: 'secondary.main' }} />
-                <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 700 }}>
-                  {stats.withCustomLimit}
-                </Typography>
-              </Box>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                Custom Device Limits
-              </Typography>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={6} md={4}>
+          <StatCard
+            title="Custom Device Limits"
+            value={stats.withCustomLimit}
+            icon={<PersonIcon sx={{ fontSize: 40 }} />}
+            color="secondary"
+            tooltip="Users with custom maximum device limits"
+          />
         </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card
-            sx={{
-              boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)',
-            }}
-          >
-            <CardContent>
-              <Box display="flex" alignItems="center" gap={1} mb={1}>
-                <PersonIcon sx={{ color: 'success.main' }} />
-                <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 700 }}>
-                  {stats.recent}
-                </Typography>
-              </Box>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                New This Week
-              </Typography>
-            </CardContent>
-          </Card>
+        <Grid item xs={12} sm={6} md={4}>
+          <StatCard
+            title="New This Week"
+            value={stats.recent}
+            icon={<PersonIcon sx={{ fontSize: 40 }} />}
+            color="success"
+            tooltip="Users registered in the last 7 days"
+          />
         </Grid>
       </Grid>
 
-      <TableContainer
-        component={Paper}
-        sx={{
-          boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.1), 0 2px 4px -1px rgba(59, 130, 246, 0.06)',
-        }}
-      >
-        <Table>
-          <TableHead>
-            <TableRow sx={{ bgcolor: 'grey.50' }}>
-              <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>User ID</TableCell>
-              <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>Email Address</TableCell>
-              <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>
-                <Tooltip title="Maximum number of devices this user can register" arrow>
-                  <span>Max Devices</span>
-                </Tooltip>
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, color: 'text.primary' }}>
-                <Tooltip title="When this user account was created" arrow>
-                  <span>Registered</span>
-                </Tooltip>
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, color: 'text.primary' }} align="center">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredUsers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">
-                    {searchTerm ? 'No users found matching your search' : 'No users found'}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredUsers.map((user) => (
-                <TableRow key={user.id} hover sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>
-                      #{user.id}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary' }}>
-                      {user.email || 'N/A'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    {user.max_devices ? (
-                      <Chip
-                        label={`${user.max_devices} devices`}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
-                    ) : (
-                      <Tooltip title="Using default device limit (2-3 devices)" arrow>
-                        <Chip label="Default" size="small" color="default" />
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {user.created_at ? (
-                      <Tooltip title={format(new Date(user.created_at), 'PPpp')} arrow>
-                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                          {format(new Date(user.created_at), 'MMM dd, yyyy')}
-                        </Typography>
-                      </Tooltip>
-                    ) : (
-                      <Typography variant="body2" sx={{ color: 'text.tertiary' }}>-</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="View user details" arrow>
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => navigate(`/users/${user.id}`)}
-                      >
-                        <VisibilityIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {/* Filter Bar */}
+      <FilterBar
+        searchValue={searchTerm}
+        onSearchChange={handleSearch}
+        searchPlaceholder="Search by email or ID..."
+      />
+
+      {/* Data Table */}
+      <DataTable
+        columns={columns}
+        data={tableData}
+        loading={loading}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+        onSort={handleSort}
+        page={page}
+        rowsPerPage={rowsPerPage}
+        totalCount={totalCount}
+        onPageChange={handleChangePage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+        emptyMessage={searchTerm ? 'No users found matching your search' : 'No users found'}
+      />
     </Box>
   )
 }

@@ -35,6 +35,32 @@ module.exports = (sequelize, DataTypes) => {
         model: 'plans',
         key: 'id'
       }
+    },
+    current_period_start: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Start of current billing period (from Stripe)'
+    },
+    current_period_end: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'End of current billing period (from Stripe) - determines license expiration'
+    },
+    cancel_at_period_end: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Whether subscription will cancel at period end'
+    },
+    canceled_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When subscription was canceled (if applicable)'
+    },
+    trial_end: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'End of trial period (if applicable)'
     }
   }, {
     tableName: 'subscriptions',
@@ -43,6 +69,12 @@ module.exports = (sequelize, DataTypes) => {
     createdAt: 'created_at',
     updatedAt: 'updated_at'
   });
+
+  Subscription.associate = (models) => {
+    Subscription.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+    Subscription.belongsTo(models.Plan, { foreignKey: 'plan_id', as: 'plan' });
+    Subscription.hasMany(models.Payment, { foreignKey: 'subscription_id', as: 'payments' });
+  };
 
   return Subscription;
 };
